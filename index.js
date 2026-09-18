@@ -1,12 +1,44 @@
+const fs = require('fs');
+const path = require('path');
 const express = require('express');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const DATA_DIR = process.env.DATA_DIR || __dirname;
+const TASKS_FILE = path.join(DATA_DIR, 'tasks.json');
 
 app.use(express.json());
 
 let tasks = [];
 let nextId = 1;
+
+function loadTasks() {
+  try {
+    if (fs.existsSync(TASKS_FILE)) {
+      const data = JSON.parse(fs.readFileSync(TASKS_FILE, 'utf8'));
+      if (Array.isArray(data.tasks)) {
+        tasks = data.tasks;
+        nextId = typeof data.nextId === 'number' && data.nextId > 1 ? data.nextId : computeNextId();
+      }
+    }
+  } catch (err) {
+    console.error('Failed to load tasks:', err.message);
+    tasks = [];
+    nextId = 1;
+  }
+}
+
+function saveTasks() {
+  try {
+    fs.writeFileSync(TASKS_FILE, JSON.stringify({ tasks, nextId }, null, 2), 'utf8');
+  } catch (err) {
+    console.error('Failed to save tasks:', err.message);
+  }
+}
+
+function computeNextId() {
+  return tasks.length > 0 ? Math.max(...tasks.map((t) => t.id)) + 1 : 1;
+}
 
 function createTask(title) {
   const task = {
@@ -16,8 +48,18 @@ function createTask(title) {
     createdAt: new Date().toISOString(),
   };
   tasks.push(task);
+  saveTasks();
   return task;
 }
+
+function getFilteredTasks(status) {
+  if (status === 'open' || status === 'done') {
+    return tasks.filter((t) => t.status === status);
+  }
+  return tasks;
+}
+
+loadTasks();
 
 app.get('/', (req, res) => {
   res.send(`
@@ -26,7 +68,7 @@ app.get('/', (req, res) => {
       <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>Apex Tester Advanced</title>
+        <title>Apex-Mixed-Upgrade</title>
         <style>
           * { box-sizing: border-box; }
           body {
@@ -81,6 +123,15 @@ app.get('/', (req, res) => {
           .btn-success:hover { background: #15803d; }
           .btn-danger { background: #dc2626; color: #fff; }
           .btn-danger:hover { background: #b91c1c; }
+          .btn-secondary { background: #e5e7eb; color: #1f2937; }
+          .btn-secondary:hover { background: #d1d5db; }
+          .filter-row {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+          }
+          .filter-row button.active { background: #0f172a; color: #fff; }
           ul { list-style: none; padding: 0; margin: 0; }
           li {
             display: flex;
@@ -99,11 +150,15 @@ app.get('/', (req, res) => {
           li span { flex: 1; margin-right: 0.75rem; word-break: break-word; }
           .empty { color: #6b7280; text-align: center; padding: 1rem 0; }
           .meta { color: #6b7280; font-size: 0.8rem; margin-top: 0.25rem; }
+          .tagline { color: #6b7280; font-size: 0.9rem; margin-top: 0.25rem; }
         </style>
       </head>
       <body>
         <header>
-          <h1>Apex Tester Advanced</h1>
+          <div>
+            <h1>Apex-Mixed-Upgrade</h1>
+            <div class="tagline">The distraction-free personal task board that lives on your machine.</div>
+          </div>
           <div id="clock">--:--:-- UTC</div>
         </header>
         <main>
@@ -111,6 +166,11 @@ app.get('/', (req, res) => {
             <div class="input-row">
               <input id="titleInput" type="text" placeholder="Add a new task..." autocomplete="off" />
               <button id="addBtn" class="btn-primary">Add Task</button>
+            </div>
+            <div class="filter-row">
+              <button id="filter-all" class="btn-secondary active">All</button>
+              <button id="filter-open" class="btn-secondary">Open</button>
+              <button id="filter-done" class="btn-secondary">Done</button>
             </div>
             <ul id="taskList"></ul>
             <div id="emptyState" class="empty" style="display:none;">No tasks yet. Add one above.</div>
@@ -128,11 +188,30 @@ app.get('/', (req, res) => {
           const addBtn = document.getElementById('addBtn');
           const taskList = document.getElementById('taskList');
           const emptyState = document.getElementById('emptyState');
+          const filterAll = document.getElementById('filter-all');
+          const filterOpen = document.getElementById('filter-open');
+          const filterDone = document.getElementById('filter-done');
+
+          let currentFilter = 'all';
 
           async function loadTasks() {
-            const res = await fetch('/api/tasks');
+            const url = currentFilter === 'all' ? '/api/tasks' : '/api/tasks?status=' + currentFilter;
+            const res = await fetch(url);
             const data = await res.json();
             renderTasks(data.tasks);
+          }
+
+          function updateFilterButtons() {
+            [filterAll, filterOpen, filterDone].forEach((btn) => btn.classList.remove('active'));
+            if (currentFilter === 'all') filterAll.classList.add('active');
+            if (currentFilter === 'open') filterOpen.classList.add('active');
+            if (currentFilter === 'done') filterDone.classList.add('active');
+          }
+
+          function setFilter(filter) {
+            currentFilter = filter;
+            updateFilterButtons();
+            loadTasks();
           }
 
           function renderTasks(tasks) {
@@ -163,6 +242,12 @@ app.get('/', (req, res) => {
                 completeBtn.textContent = 'Complete';
                 completeBtn.onclick = () => completeTask(task.id);
                 actions.appendChild(completeBtn);
+              } else {
+                const reopenBtn = document.createElement('button');
+                reopenBtn.className = 'btn-secondary';
+                reopenBtn.textContent = 'Reopen';
+                reopenBtn.onclick = () => reopenTask(task.id);
+                actions.appendChild(reopenBtn);
               }
 
               const deleteBtn = document.createElement('button');
@@ -198,6 +283,15 @@ app.get('/', (req, res) => {
             await loadTasks();
           }
 
+          async function reopenTask(id) {
+            await fetch('/api/tasks/' + id, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ status: 'open' }),
+            });
+            await loadTasks();
+          }
+
           async function deleteTask(id) {
             await fetch('/api/tasks/' + id, { method: 'DELETE' });
             await loadTasks();
@@ -207,6 +301,9 @@ app.get('/', (req, res) => {
           titleInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') addTask();
           });
+          filterAll.addEventListener('click', () => setFilter('all'));
+          filterOpen.addEventListener('click', () => setFilter('open'));
+          filterDone.addEventListener('click', () => setFilter('done'));
 
           loadTasks();
         </script>
@@ -220,7 +317,8 @@ app.get('/health', (req, res) => {
 });
 
 app.get('/api/tasks', (req, res) => {
-  res.json({ tasks });
+  const status = req.query.status;
+  res.json({ tasks: getFilteredTasks(status) });
 });
 
 app.post('/api/tasks', (req, res) => {
@@ -244,6 +342,7 @@ app.patch('/api/tasks/:id', (req, res) => {
   }
   if (status) {
     task.status = status;
+    saveTasks();
   }
   res.json(task);
 });
@@ -255,12 +354,13 @@ app.delete('/api/tasks/:id', (req, res) => {
     return res.status(404).json({ error: 'task not found' });
   }
   tasks.splice(idx, 1);
+  saveTasks();
   res.status(204).send();
 });
 
 if (require.main === module) {
   app.listen(PORT, () => {
-    console.log(`Apex-Tester-Advanced listening on port ${PORT}`);
+    console.log(`Apex-Mixed-Upgrade listening on port ${PORT}`);
   });
 }
 
