@@ -1,7 +1,7 @@
 {
-  "name": "Apex-Tester-App",
-  "version": "1.0.0",
-  "description": "Small Node.js web app for 1Touch tester",
+  "name": "Apex-Tester-Advanced",
+  "version": "2.0.0",
+  "description": "Advanced Node.js web app for the 1Touch tester with a live UTC clock and interactive task board",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",

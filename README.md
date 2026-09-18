@@ -1,11 +1,17 @@
-# Apex-Tester-App
+# Apex-Tester-Advanced
 
-A small Node.js web app for the 1Touch tester.
+An advanced Node.js web app for the 1Touch tester. It serves a polished home page with a live UTC clock and an interactive task board, plus a JSON task API and a health check endpoint.
 
 ## Features
 
-- Serves a single page at `/` showing **"1Touch tester"** and the current UTC time.
-- Exposes a `GET /health` endpoint returning `{"ok":true}`.
+- **Polished home page** at `/` with a header, live UTC clock, and a working task board.
+- **Task board** lets you add, complete, and delete tasks without a full page reload.
+- **Task API** at `/api/tasks` with in-memory storage:
+  - `GET /api/tasks` — list all tasks
+  - `POST /api/tasks` — create a task (`{ "title": "..." }`)
+  - `PATCH /api/tasks/:id` — update task status (`{ "status": "done" }`)
+  - `DELETE /api/tasks/:id` — remove a task
+- **Health check** at `GET /health` returns `{"ok":true}`.
 
 ## Getting Started
 
@@ -21,3 +27,5 @@ The app listens on the port defined by the `PORT` environment variable, defaulti
 ```bash
 npm test
 ```
+
+Tests cover the health endpoint, home page rendering, and the full task API lifecycle.
